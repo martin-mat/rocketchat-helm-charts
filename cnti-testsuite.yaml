@@ -11,3 +11,4 @@ deployments:
       chart_version: 7.0.2
       namespace: rocketchat
       helm_values: --values ci/cnti-values.yaml
+      helm_values: --values ci/cnti-values.yaml

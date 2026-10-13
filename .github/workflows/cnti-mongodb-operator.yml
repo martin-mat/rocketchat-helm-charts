@@ -1,0 +1,44 @@
+name: CNTi with MongoDB operator
+on:
+  push:
+    branches: [cnti-mongodb-operator]
+permissions:
+  contents: read
+jobs:
+  cert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: kind cluster, one control plane and two workers
+        run: |
+          cat > kind.yaml <<'K'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+            - role: control-plane
+            - role: worker
+            - role: worker
+          K
+      - uses: helm/kind-action@v1
+        with:
+          config: kind.yaml
+      - name: MongoDB 8.2 through MongoDB's operator (outside the CNF)
+        run: |
+          helm repo add mongodb https://mongodb.github.io/helm-charts
+          helm install mongodb-kubernetes-operator mongodb/mongodb-kubernetes -n mongodb --create-namespace --wait --timeout 10m
+          kubectl apply -f ci/prereq/mongodb.yaml
+          for i in $(seq 1 90); do
+            phase=$(kubectl get mongodbcommunity mongodb -n mongodb -o jsonpath='{.status.phase}' 2>/dev/null || true)
+            echo "MongoDBCommunity phase: ${phase:-none}"; [ "$phase" = Running ] && break; sleep 10
+          done
+          kubectl get pods -n mongodb -o wide
+          [ "$phase" = Running ]
+      - uses: lfn-cnti/testsuite-action@v1
+        with:
+          version: v2.2.0
+          cnf_config: cnti-testsuite.yaml
+          log_level: info
+          install_timeout: 900
+          tests: cert
+          create_kind_cluster: false
