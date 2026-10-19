@@ -1,0 +1,34 @@
+# MongoDB for Rocket.Chat as Rocket.Chat recommends since January 2026
+# (forums.rocket.chat/t/22679): MongoDB's operator and a MongoDBCommunity
+# replica set on MongoDB 8.2. Installed before the suite runs, in its own
+# namespace, so the suite judges Rocket.Chat only. One member for kind.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rocketchat-password
+  namespace: mongodb
+type: Opaque
+stringData:
+  password: rocketchat
+---
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mongodb
+  namespace: mongodb
+spec:
+  members: 1
+  type: ReplicaSet
+  version: "8.2.3"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: rocketchat
+      db: rocketchat
+      passwordSecretRef:
+        name: rocketchat-password
+      roles:
+        - name: readWrite
+          db: rocketchat
+      scramCredentialsSecretName: rocketchat-scram

@@ -1,0 +1,71 @@
+# Fork-only: Rocket.Chat from master and with every Deployment on the
+# chart's ServiceAccount, side by side, on MongoDB from MongoDB's operator.
+name: Verify ServiceAccount on every Deployment
+on:
+  push:
+    branches: [verify-sa]
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [upstream-master, fix]
+    name: ${{ matrix.ref }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Chart from ${{ matrix.ref }}
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.ref }}" = upstream-master ]; then
+            git remote add upstream https://github.com/RocketChat/helm-charts.git
+            git fetch -q upstream master
+            git checkout -q upstream/master -- rocketchat
+          fi
+          grep -c serviceAccountName rocketchat/templates/*.yaml | grep -v ":0" || true
+          helm repo add bitnami https://charts.bitnami.com/bitnami >/dev/null
+          helm repo add nats https://nats-io.github.io/k8s/helm/charts/ >/dev/null
+          helm dependency build rocketchat >/dev/null
+      - name: kind cluster
+        run: |
+          cat > "$RUNNER_TEMP/kind.yaml" <<'KIND'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+            - role: control-plane
+            - role: worker
+            - role: worker
+          KIND
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          cluster_name: cnti-testsuite
+          config: ${{ runner.temp }}/kind.yaml
+      - name: MongoDB through MongoDB's operator
+        run: |
+          helm repo add mongodb https://mongodb.github.io/helm-charts >/dev/null
+          helm install mongodb-kubernetes-operator mongodb/mongodb-kubernetes -n mongodb --create-namespace --wait --timeout 10m >/dev/null
+          kubectl apply -f ci-verify/prereq-mongodb.yaml
+          for i in $(seq 1 90); do
+            phase=$(kubectl get mongodbcommunity mongodb -n mongodb -o jsonpath='{.status.phase}' 2>/dev/null || true)
+            [ "$phase" = Running ] && break; sleep 10
+          done
+          [ "$phase" = Running ]
+      - uses: lfn-cnti/testsuite-action@70536fda55fcb11f4f7463175fe9d57c86b85574 # v1.2.0
+        with:
+          version: v2.3.0
+          cnf_config: ci-verify/cnti-testsuite.yaml
+          create_kind_cluster: "false"
+          install_timeout: "900"
+          tests: dedicated_service_account liveness
+          fail_on_failure: "false"
+          artifact_name: results-${{ matrix.ref }}
+      - name: Who the pods run as
+        if: always()
+        run: |
+          kubectl -n rocketchat get pods -o custom-columns='POD:.metadata.name,READY:.status.containerStatuses[*].ready,SA:.spec.serviceAccountName'
+          kubectl -n rocketchat get sa

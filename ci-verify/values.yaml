@@ -1,0 +1,6 @@
+# Rocket.Chat on the external MongoDB the workflow installs first, as the
+# chart's maintainers recommend; the bundled Bitnami MongoDB (6.0) is too old
+# for Rocket.Chat 8.
+mongodb:
+  enabled: false
+externalMongodbUrl: "mongodb://rocketchat:rocketchat@mongodb-0.mongodb-svc.mongodb.svc.cluster.local:27017/rocketchat?authSource=rocketchat&replicaSet=mongodb"
